@@ -1,9 +1,8 @@
-## Script name: SDM model fitting pipeline using test data sets for Southeastern Canada
+## Script name: SDM model fitting and climate refugia and exposure mapping 
 ##
-## Purpose of script: To build a pipeline for modeling large amounts of species occurrence data, using parallel clusters
+## Purpose of script: To map climate refugia and exposure for terrestrial vertebrated
 ##
-## Source: Yisa Ginath Yuh, adapted from scripts produced for the prairie region by James Paterson
-## Email: gyisa@uottawa.ca
+## 
 
 ##--------------------------------------------------------------------------------------
 
