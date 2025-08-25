@@ -1,0 +1,605 @@
+##### 1. Load libraries -------------------------------------------------------
+
+library(dplyr) # tidy data
+library(sf) # simple features
+library(rgbif) # wrapper for GBIF API, gets DOI with download (important for citing and including in papers!)
+library(CoordinateCleaner) # for cleaning GBIF data
+
+
+Sys.setenv(GBIF_USER = "yisaginath")
+Sys.setenv(GBIF_PWD = "Ginathyuh80.")
+Sys.setenv(GBIF_EMAIL = "yisaginath80@yahoo.com")
+
+
+
+##### 2. Load species list, download datasets ------------------------------------------------
+
+# species information
+speciesList <- read.csv("F:/Uillinois_data/GBIF/CASC_speciesList.csv")
+head(speciesList)
+# read in study extent
+study_area <- st_read(dsn = "F:/Uillinois_data/study_area/study_area_projected.shp")%>% 
+  st_make_valid()
+
+# Set extent based on study area
+study_area_Extent <- sf::st_bbox(study_area)
+
+# Make WKT of study region (polygon for query)
+# Use extent to get most of the way there.
+study_area_Extent_WKT <- study_area %>%
+  st_as_sf() %>%
+  st_union() %>%
+  st_bbox() %>%
+  st_as_sfc() %>%
+  sf::st_geometry() %>%
+  sf::st_as_text()
+
+
+# Transform to WGS84 (required by GBIF)
+study_area_wgs84 <- st_transform(study_area, crs = 4326)
+
+# Convert to WKT for GBIF search
+study_area_Extent_WKT <- st_as_text(st_geometry(st_union(study_area_wgs84)))
+
+##### 3. Downloading GBIF observations with rgbif --------
+
+# Uses an example with two species
+# Note: you will need to have rgbif linked to a GBIF account (mine is associated with me/my email)
+# See: https://docs.ropensci.org/rgbif/articles/gbif_credentials.html
+
+# # Species list has genus and species in different columns
+# gbifExampleTaxonKeys <- speciesList %>% 
+#   # Filter to just two species to develop workflow; update to all species (or groups) for download
+#   filter(SCI_NAME %in% c("Eurycea bislineata",
+#                          "Lithobates palustris")) %>%
+#   # Just a vector of species names (scientific)
+#   dplyr::pull(SCI_NAME) %>%
+#   name_backbone_checklist() %>% # match to GBIF backbone 
+#   filter(!matchType == "NONE") %>% # get matched names
+#   pull(usageKey) 
+
+reptileGBIFTaxonKeys <- speciesList %>% 
+  # Filter to just two species to develop workflow; update to all species (or groups) for download
+  filter(taxonomicGroup == "reptiles") %>%
+  # Just a vector of species names (scientific)
+  dplyr::pull(SCI_NAME) %>%
+  name_backbone_checklist() %>% # match to GBIF backbone 
+  filter(!matchType == "NONE") %>% # get matched names
+  pull(usageKey) 
+
+amphibianGBIFTaxonKeys <- speciesList %>% 
+  # Filter to just two species to develop workflow; update to all species (or groups) for download
+  filter(taxonomicGroup == "amphibians") %>%
+  # Just a vector of species names (scientific)
+  dplyr::pull(SCI_NAME) %>%
+  name_backbone_checklist() %>% # match to GBIF backbone 
+  filter(!matchType == "NONE") %>% # get matched names
+  pull(usageKey) 
+
+mammalGBIFTaxonKeys <- speciesList %>% 
+  # Filter to just two species to develop workflow; update to all species (or groups) for download
+  filter(taxonomicGroup == "mammals") %>%
+  # Just a vector of species names (scientific)
+  dplyr::pull(SCI_NAME) %>%
+  name_backbone_checklist() %>% # match to GBIF backbone 
+  filter(!matchType == "NONE") %>% # get matched names
+  pull(usageKey) 
+
+birdGBIFTaxonKeys <- speciesList %>% 
+  # Filter to just two species to develop workflow; update to all species (or groups) for download
+  filter(taxonomicGroup == "birds") %>%
+  # Just a vector of species names (scientific)
+  dplyr::pull(SCI_NAME) %>%
+  name_backbone_checklist() %>% # match to GBIF backbone 
+  filter(!matchType == "NONE") %>% # get matched names
+  pull(usageKey)
+
+# Do a search first to get number of records and identify occurrences
+# geometry is in WKT format: vertices going counter-clockwise 
+# 5 points in a rectangular polygon because it must reconnect at starting corner
+# NOTE: even when a taxon key is matched in GBIF backbone, it doesn't mean it will return observations.
+# For example, "Aquarana clamitans" returns a taxon match, but returns no observations. 
+# "Lithobates clamitans" is the accepted name in GBIF Taxonomy Backbone (even though Aquarana exists there)
+# In other words, some of the IUCN taxonomy does not match-up with GBIF taxonomy, and we'll have to come-up with a solution.
+
+# exampleGBIFSearch <- occ_search(# Search with vector of taxon keys
+#   taxonKey = paste0(gbifExampleTaxonKeys, collapse = ";"),
+#   # Only within bounding box of study region
+#   geometry = easternEcozonesExtentWKT, 
+#   # Can limit the number of rows returned (0 = no limit)
+#   limit = 0,
+#   # Must have coordinates
+#   hasCoordinate = TRUE, 
+#   # No spatial issues
+#   hasGeospatialIssue = FALSE,
+#   # Can specify parts of the year (e.g., month)
+#   # month = '06, 07',
+#   # Between 2000 and 2023
+#   # May need to filter to smaller year range
+#   year = '2000, 2023')
+
+# exampleGBIFSearch
+
+reptileGBIFSearch <- occ_search(# Search with vector of taxon keys
+  taxonKey = paste0(reptileGBIFTaxonKeys, collapse = ";"),
+  # Only within bounding box of study region
+  geometry = study_area_Extent_WKT, 
+  # Can limit the number of rows returned (0 = no limit)
+  limit = 0,
+  # Must have coordinates
+  hasCoordinate = TRUE, 
+  # No spatial issues
+  hasGeospatialIssue = FALSE,
+  # Can specify parts of the year (e.g., month)
+  # month = '06, 07',
+  # Between 2000 and 2023
+  # May need to filter to smaller year range
+  year = '2000, 2024')
+
+# Look at basics
+reptileGBIFSearch
+
+amphibianGBIFSearch <- occ_search(# Search with vector of taxon keys
+  taxonKey = paste0(amphibianGBIFTaxonKeys, collapse = ";"),
+  # Only within bounding box of study region
+  geometry = study_area_Extent_WKT, 
+  # Can limit the number of rows returned (0 = no limit)
+  limit = 0,
+  # Must have coordinates
+  hasCoordinate = TRUE, 
+  # No spatial issues
+  hasGeospatialIssue = FALSE,
+  # Can specify parts of the year (e.g., month)
+  # month = '06, 07',
+  # Between 2000 and 2023
+  # May need to filter to smaller year range
+  year = '2000, 2024')
+
+# Look at basics
+amphibianGBIFSearch
+
+mammalGBIFSearch <- occ_search(# Search with vector of taxon keys
+  taxonKey = paste0(mammalGBIFTaxonKeys, collapse = ";"),
+  # Only within bounding box of study region
+  geometry = study_area_Extent_WKT, 
+  # Can limit the number of rows returned (0 = no limit)
+  limit = 0,
+  # Must have coordinates
+  hasCoordinate = TRUE, 
+  # No spatial issues
+  hasGeospatialIssue = FALSE,
+  # Can specify parts of the year (e.g., month)
+  # month = '06, 07',
+  # Between 2000 and 2023
+  # May need to filter to smaller year range
+  year = '2000, 2024')
+
+# Look at basics
+mammalGBIFSearch
+
+
+birdGBIFSearch <- occ_search(# Search with vector of taxon keys
+  taxonKey = paste0(birdGBIFTaxonKeys, collapse = ";"),
+  # Only within bounding box of study region
+  geometry = study_area_Extent_WKT, 
+  # Can limit the number of rows returned (0 = no limit)
+  limit = 0,
+  # Must have coordinates
+  hasCoordinate = TRUE, 
+  # No spatial issues
+  hasGeospatialIssue = FALSE,
+  # Can specify parts of the year (e.g., month)
+  # month = '06, 07',
+  # Between 2000 and 2023
+  # May need to filter to smaller year range
+  year = '2000, 2024')
+
+# Look at basics
+birdGBIFSearch
+
+
+
+#reptile
+
+occ_download(
+  pred_in("taxonKey",reptileGBIFTaxonKeys), # important to use pred_in
+  pred("occurrenceStatus", "PRESENT"),
+  pred("hasCoordinate", TRUE),
+  pred("hasGeospatialIssue", FALSE),
+  pred_gte("year", 2000),
+  pred_not(pred_in("basisOfRecord",c("FOSSIL_SPECIMEN","LIVING_SPECIMEN"))),
+  pred_within(study_area_Extent_WKT),
+  pred_or(  
+    #Exclude uncertain locations >100m uncertainty, or those missing uncertainty information
+    pred_lt("coordinateUncertaintyInMeters",1000),
+    pred_isnull("coordinateUncertaintyInMeters")
+  ),
+  format = "SIMPLE_CSV"
+)
+
+occ_download_wait('0005536-250426092105405')
+
+# Citation Info:  
+#   Please always cite the download DOI when using this data.
+# https://www.gbif.org/citation-guidelines
+# DOI: 10.15468/dl.dyp88s
+# Citation:
+#   GBIF Occurrence Download https://doi.org/10.15468/dl.dyp88s Accessed from R via rgbif (https://github.com/ropensci/rgbif) on 2024-10-31
+
+
+reptileGBIF <- occ_download_get('0005536-250426092105405', overwrite = T) %>%
+  occ_download_import()
+
+
+#amphibian 
+
+occ_download(
+  pred_in("taxonKey",amphibianGBIFTaxonKeys), # important to use pred_in
+  pred("occurrenceStatus", "PRESENT"),
+  pred("hasCoordinate", TRUE),
+  pred("hasGeospatialIssue", FALSE),
+  pred_gte("year", 2000),
+  pred_not(pred_in("basisOfRecord",c("FOSSIL_SPECIMEN","LIVING_SPECIMEN"))),
+  pred_within(study_area_Extent_WKT),
+  pred_or(  
+    #Exclude uncertain locations >100m uncertainty, or those missing uncertainty information
+    pred_lt("coordinateUncertaintyInMeters",1000),
+    pred_isnull("coordinateUncertaintyInMeters")
+  ),
+  format = "SIMPLE_CSV"
+)
+
+#occ_download_meta(key = "0006551-250426092105405")
+occ_download_meta(key = "0010138-250426092105405")
+
+# Citation Info:  
+#   Please always cite the download DOI when using this data.
+#   https://www.gbif.org/citation-guidelines
+#   DOI: 10.15468/dl.ftz3zr
+#   Citation:
+#   GBIF Occurrence Download https://doi.org/10.15468/dl.ftz3zr Accessed from R via rgbif (https://github.com/ropensci/rgbif) on 2024-11-01
+
+amphibianGBIF <- occ_download_get('0006551-250426092105405') %>%
+  occ_download_import()
+
+#mammal 
+
+occ_download(
+  pred_in("taxonKey",mammalGBIFTaxonKeys), # important to use pred_in
+  pred("occurrenceStatus", "PRESENT"),
+  pred("hasCoordinate", TRUE),
+  pred("hasGeospatialIssue", FALSE),
+  pred_gte("year", 2000),
+  pred_not(pred_in("basisOfRecord",c("FOSSIL_SPECIMEN","LIVING_SPECIMEN"))),
+  pred_within(study_area_Extent_WKT),
+  pred_or(  
+    #Exclude uncertain locations >100m uncertainty, or those missing uncertainty information
+    pred_lt("coordinateUncertaintyInMeters",1000),
+    pred_isnull("coordinateUncertaintyInMeters")
+  ),
+  format = "SIMPLE_CSV"
+)
+
+occ_download_list(user = "yisaginath")
+
+#occ_download_meta(key = "0006610-250426092105405")
+occ_download_meta(key = "0010174-250426092105405")
+
+# Citation Info:  
+#   Please always cite the download DOI when using this data.
+#   https://www.gbif.org/citation-guidelines
+#   DOI: 10.15468/dl.33qbg9
+#   Citation:
+#   GBIF Occurrence Download https://doi.org/10.15468/dl.33qbg9 Accessed from R via rgbif (https://github.com/ropensci/rgbif) on 2024-11-01
+
+mammalGBIF <- occ_download_get('0010174-250426092105405') %>%
+  occ_download_import()
+
+
+
+#bird 
+
+occ_download(
+  pred_in("taxonKey",birdGBIFTaxonKeys), # important to use pred_in
+  pred("occurrenceStatus", "PRESENT"),
+  pred("hasCoordinate", TRUE),
+  pred("hasGeospatialIssue", FALSE),
+  pred_gte("year", 2000),
+  pred_not(pred_in("basisOfRecord",c("FOSSIL_SPECIMEN","LIVING_SPECIMEN"))),
+  pred_within(study_area_Extent_WKT),
+  pred_or(  
+    #Exclude uncertain locations >100m uncertainty, or those missing uncertainty information
+    pred_lt("coordinateUncertaintyInMeters",1000),
+    pred_isnull("coordinateUncertaintyInMeters")
+  ),
+  format = "SIMPLE_CSV"
+)
+
+occ_download_list(user = "yisaginath")
+
+occ_download_meta(key = "0010213-250426092105405")
+
+# Citation Info:  
+#   Please always cite the download DOI when using this data.
+#   https://www.gbif.org/citation-guidelines
+#   DOI: 10.15468/dl.33qbg9
+#   Citation:
+#   GBIF Occurrence Download https://doi.org/10.15468/dl.33qbg9 Accessed from R via rgbif (https://github.com/ropensci/rgbif) on 2024-11-01
+
+birdGBIF <- occ_download_get('0010213-250426092105405') %>%
+  occ_download_import()
+
+
+
+
+##### 3. Clean species observations ----------------------------------------------
+
+# Clean (based on: https://data-blog.gbif.org/post/gbif-filtering-guide/)
+# # uses coordinateCleaner
+# exampleGBIFfiltered <- exampleGBIF %>%
+#   setNames(tolower(names(.))) %>% # set lowercase column names to work with CoordinateCleaner
+#   filter(occurrencestatus  == "PRESENT") %>%
+#   filter(!basisofrecord %in% c("FOSSIL_SPECIMEN","LIVING_SPECIMEN")) %>%
+#   filter(year >= 2000) %>% 
+#   filter(coordinateprecision < 0.01 | is.na(coordinateprecision)) %>% 
+#   filter(coordinateuncertaintyinmeters < 805 | is.na(coordinateuncertaintyinmeters)) %>% #change to 1000???**
+#   # Commonly used "NULL" uncertainty values from different data sets
+#   filter(!coordinateuncertaintyinmeters %in% c(301, 3036, 999, 9999)) %>% 
+#   filter(!decimallatitude == 0 | !decimallongitude == 0) %>%
+#   cc_cen(buffer = 2000, lon = "decimallongitude", lat = "decimallatitude") %>% # remove country centroids within 2km 
+#   cc_cap(buffer = 2000, lon = "decimallongitude", lat = "decimallatitude") %>% # remove capitals' centroids within 2km
+#   cc_inst(buffer = 2000, lon = "decimallongitude", lat = "decimallatitude") %>% # remove zoo and herbaria within 2km 
+#   # cc_sea() %>% # remove from ocean 
+#   distinct(decimallongitude, decimallatitude, specieskey, datasetkey, .keep_all = TRUE) 
+
+reptileGBIFfiltered <- reptileGBIF %>%
+  setNames(tolower(names(.))) %>% # set lowercase column names to work with CoordinateCleaner
+  filter(occurrencestatus  == "PRESENT") %>%
+  filter(!basisofrecord %in% c("FOSSIL_SPECIMEN","LIVING_SPECIMEN")) %>%
+  filter(year >= 2000) %>% 
+  filter(coordinateprecision < 0.01 | is.na(coordinateprecision)) %>% 
+  filter(coordinateuncertaintyinmeters < 1000 | is.na(coordinateuncertaintyinmeters)) %>% #changed to 1000
+  # Commonly used "NULL" uncertainty values from different data sets
+  filter(!coordinateuncertaintyinmeters %in% c(301, 3036, 999, 9999)) %>% 
+  filter(!decimallatitude == 0 | !decimallongitude == 0) %>%
+  cc_cen(buffer = 2000, lon = "decimallongitude", lat = "decimallatitude") %>% # remove country centroids within 2km 
+  cc_cap(buffer = 2000, lon = "decimallongitude", lat = "decimallatitude") %>% # remove capitals' centroids within 2km
+  cc_inst(buffer = 2000, lon = "decimallongitude", lat = "decimallatitude") %>% # remove zoo and herbaria within 2km 
+  # cc_sea() %>% # remove from ocean 
+  distinct(decimallongitude, decimallatitude, specieskey, datasetkey, .keep_all = TRUE) 
+
+amphibianGBIFfiltered <- amphibianGBIF %>%
+  setNames(tolower(names(.))) %>% # set lowercase column names to work with CoordinateCleaner
+  filter(occurrencestatus  == "PRESENT") %>%
+  filter(!basisofrecord %in% c("FOSSIL_SPECIMEN","LIVING_SPECIMEN")) %>%
+  filter(year >= 2000) %>% 
+  filter(coordinateprecision < 0.01 | is.na(coordinateprecision)) %>% 
+  filter(coordinateuncertaintyinmeters < 1000 | is.na(coordinateuncertaintyinmeters)) %>% #changed to 1000
+  # Commonly used "NULL" uncertainty values from different data sets
+  filter(!coordinateuncertaintyinmeters %in% c(301, 3036, 999, 9999)) %>% 
+  filter(!decimallatitude == 0 | !decimallongitude == 0) %>%
+  cc_cen(buffer = 2000, lon = "decimallongitude", lat = "decimallatitude") %>% # remove country centroids within 2km 
+  cc_cap(buffer = 2000, lon = "decimallongitude", lat = "decimallatitude") %>% # remove capitals' centroids within 2km
+  cc_inst(buffer = 2000, lon = "decimallongitude", lat = "decimallatitude") %>% # remove zoo and herbaria within 2km 
+  # cc_sea() %>% # remove from ocean 
+  distinct(decimallongitude, decimallatitude, specieskey, datasetkey, .keep_all = TRUE) 
+
+mammalGBIFfiltered <- mammalGBIF %>%
+  setNames(tolower(names(.))) %>% # set lowercase column names to work with CoordinateCleaner
+  filter(occurrencestatus  == "PRESENT") %>%
+  filter(!basisofrecord %in% c("FOSSIL_SPECIMEN","LIVING_SPECIMEN")) %>%
+  filter(year >= 2000) %>% 
+  filter(coordinateprecision < 0.01 | is.na(coordinateprecision)) %>% 
+  filter(coordinateuncertaintyinmeters < 1000 | is.na(coordinateuncertaintyinmeters)) %>% #changed to 1000
+  # Commonly used "NULL" uncertainty values from different data sets
+  filter(!coordinateuncertaintyinmeters %in% c(301, 3036, 999, 9999)) %>% 
+  filter(!decimallatitude == 0 | !decimallongitude == 0) %>%
+  cc_cen(buffer = 2000, lon = "decimallongitude", lat = "decimallatitude") %>% # remove country centroids within 2km 
+  cc_cap(buffer = 2000, lon = "decimallongitude", lat = "decimallatitude") %>% # remove capitals' centroids within 2km
+  cc_inst(buffer = 2000, lon = "decimallongitude", lat = "decimallatitude") %>% # remove zoo and herbaria within 2km 
+  # cc_sea() %>% # remove from ocean 
+  distinct(decimallongitude, decimallatitude, specieskey, datasetkey, .keep_all = TRUE) 
+
+birdGBIFfiltered <- birdGBIF %>%
+  setNames(tolower(names(.))) %>% # set lowercase column names to work with CoordinateCleaner
+  filter(occurrencestatus  == "PRESENT") %>%
+  filter(!basisofrecord %in% c("FOSSIL_SPECIMEN","LIVING_SPECIMEN")) %>%
+  filter(year >= 2000) %>% 
+  filter(coordinateprecision < 0.01 | is.na(coordinateprecision)) %>% 
+  filter(coordinateuncertaintyinmeters < 1000 | is.na(coordinateuncertaintyinmeters)) %>% #changed to 1000
+  # Commonly used "NULL" uncertainty values from different data sets
+  filter(!coordinateuncertaintyinmeters %in% c(301, 3036, 999, 9999)) %>% 
+  filter(!decimallatitude == 0 | !decimallongitude == 0) %>%
+  cc_cen(buffer = 2000, lon = "decimallongitude", lat = "decimallatitude") %>% # remove country centroids within 2km 
+  cc_cap(buffer = 2000, lon = "decimallongitude", lat = "decimallatitude") %>% # remove capitals' centroids within 2km
+  cc_inst(buffer = 2000, lon = "decimallongitude", lat = "decimallatitude") %>% # remove zoo and herbaria within 2km 
+  # cc_sea() %>% # remove from ocean 
+  distinct(decimallongitude, decimallatitude, specieskey, datasetkey, .keep_all = TRUE) 
+
+# # Find species names not in species list
+# exampleGBIFmissingSpecies <- exampleGBIFfiltered %>%
+#   filter(!species %in% speciesList$SCI_NAME) %>%
+#   pull(species) %>%
+#   unique(.)
+# # Should have records of all species (i.e., no species in this vector)
+
+reptileGBIFmissingSpecies <- reptileGBIFfiltered %>%
+  filter(!species %in% speciesList$SCI_NAME) %>%
+  pull(species) %>%
+  unique(.)
+# Should have records of all species (i.e., no species in this vector)
+
+reptileGBIFmissingSpecies
+
+reptileGBIFmissingSpecies2 <- speciesList %>%
+  filter(taxonomicGroup == "reptiles") %>%
+  filter(!SCI_NAME %in% reptileGBIFfiltered$species) %>%
+  pull(SCI_NAME) %>%
+  unique(.)
+
+reptileGBIFmissingSpecies2 
+
+amphibianGBIFmissingSpecies <- amphibianGBIFfiltered %>%
+  filter(!species %in% speciesList$SCI_NAME) %>%
+  pull(species) %>%
+  unique(.)
+# Should have records of all species (i.e., no species in this vector)
+
+amphibianGBIFmissingSpecies
+
+amphibianGBIFmissingSpecies2 <- speciesList %>%
+  filter(taxonomicGroup == "amphibians") %>%
+  filter(!SCI_NAME %in% amphibianGBIFfiltered$species) %>%
+  pull(SCI_NAME) %>%
+  unique(.)
+
+amphibianGBIFmissingSpecies2
+#"Ambystoma tigrinum"  "Anaxyrus hemiophrys" 
+# Tiger salamander and Canadian toad: all observations are outside study area
+
+mammalGBIFmissingSpecies <- mammalGBIFfiltered %>%
+  filter(!species %in% speciesList$SCI_NAME) %>%
+  pull(species) %>%
+  unique(.)
+# Should have records of all species (i.e., no species in this vector)
+
+mammalGBIFmissingSpecies 
+
+mammalGBIFmissingSpecies2 <- speciesList %>%
+  filter(taxonomicGroup == "mammals") %>%
+  filter(!SCI_NAME %in% mammalGBIFfiltered$species) %>%
+  pull(SCI_NAME) %>%
+  unique(.)
+
+mammalGBIFmissingSpecies2
+# "Dicrostonyx hudsonius" "Gulo gulo" "Lepus arcticus" "Lepus townsendii" "Mustela macrodon"        
+# "Nycticeius humeralis" "Odobenus rosmarus" "Ovibos moschatus" "Poliocitellus franklinii" "Sorex gaspensis"         
+# "Synaptomys borealis" "Vulpes lagopus" 
+
+#AJP checked all and observations of these species are not in range/ few 
+
+birdGBIFmissingSpecies <- birdGBIFfiltered %>%
+  filter(!species %in% speciesList$SCI_NAME) %>%
+  pull(species) %>%
+  unique(.)
+# Should have records of all species (i.e., no species in this vector)
+
+birdGBIFmissingSpecies 
+
+birdGBIFmissingSpecies2 <- speciesList %>%
+  filter(taxonomicGroup == "birds") %>%
+  filter(!SCI_NAME %in% birdGBIFfiltered$species) %>%
+  pull(SCI_NAME) %>%
+  unique(.)
+
+birdGBIFmissingSpecies2
+
+# # Examine how many observations per species
+# exampleGBIFfiltered %>% 
+#   group_by(species) %>% 
+#   summarize(total = n())
+
+reptileGBIFfiltered %>% 
+  group_by(species) %>% 
+  summarize(total = n()) %>% 
+  print(n = nrow(.))
+
+amphibianGBIFfiltered %>% 
+  group_by(species) %>% 
+  summarize(total = n()) %>% 
+  print(n = nrow(.))
+
+mammalGBIFfiltered %>% 
+  group_by(species) %>% 
+  summarize(total = n()) %>% 
+  print(n = nrow(.)) 
+
+birdGBIFfiltered %>% 
+  group_by(species) %>% 
+  summarize(total = n()) %>% 
+  print(n = nrow(.))
+
+# Next need to intersect observations with study area to filter observations by location
+
+reptileObservations <- reptileGBIFfiltered %>% 
+  st_as_sf(coords = c("decimallongitude", "decimallatitude"), crs = st_crs(study_area_wgs84), remove = F ) %>% # A. Turn observations into an sf object st_as_sf()
+  st_intersection(., study_area_wgs84) # B. Intersect observations with study area  st_intersection()
+
+plot(reptileObservations[,10])
+names(reptileObservations)
+
+amphibianObservations <- amphibianGBIFfiltered %>% 
+  st_as_sf(coords = c("decimallongitude", "decimallatitude"), crs = st_crs(study_area_wgs84), remove = F ) %>% # A. Turn observations into an sf object st_as_sf()
+  st_intersection(., study_area_wgs84) # B. Intersect observations with study area  st_intersection()
+
+plot(amphibianObservations[,10])
+
+mammalObservations <- mammalGBIFfiltered %>% 
+  st_as_sf(coords = c("decimallongitude", "decimallatitude"), crs = st_crs(study_area_wgs84), remove = F ) %>% # A. Turn observations into an sf object st_as_sf()
+  st_intersection(., study_area_wgs84) # B. Intersect observations with study area  st_intersection()
+
+plot(mammalObservations[,1])
+
+birdObservations <- birdGBIFfiltered %>% 
+  st_as_sf(coords = c("decimallongitude", "decimallatitude"), crs = st_crs(study_area_wgs84), remove = F ) %>% # A. Turn observations into an sf object st_as_sf()
+  st_intersection(., study_area_wgs84) # B. Intersect observations with study area  st_intersection()
+
+plot(birdObservations[,1])
+
+plot(study_area_wgs84)
+# C. Save non-spatial form of filtered and intersecting GBIF data (just those intersecting study area)
+reptileObservations_csv <- reptileObservations %>%
+  st_drop_geometry() %>% 
+  mutate(date = as.Date(paste (year, month, day, sep = "-"), "%Y-%m-%d")) %>% 
+  select(class, family, genus, species, verbatimscientificname, date, eventdate, day, month, year, decimallatitude, decimallongitude) 
+
+reptileObservations_csv$taxonomicGroup <- "reptiles"
+
+write.csv(reptileObservations_csv, "F:/Uillinois_data/GBIF/reptile_Observations_GBIF.csv")
+
+# Amphibian 
+
+amphibianObservations_csv <- amphibianObservations %>%
+  st_drop_geometry() %>% 
+  mutate(date = as.Date(paste (year, month, day, sep = "-"), "%Y-%m-%d")) %>% 
+  select(class, family, genus, species, verbatimscientificname, date, eventdate, day, month, year, decimallatitude, decimallongitude) 
+
+amphibianObservations_csv$taxonomicGroup <- "amphibians"
+
+write.csv(amphibianObservations_csv, "F:/Uillinois_data/GBIF/amphibian_Observations_GBIF.csv")
+
+# Mammal
+
+mammalObservations_csv <- mammalObservations %>%
+  st_drop_geometry() %>% 
+  mutate(date = as.Date(paste (year, month, day, sep = "-"), "%Y-%m-%d")) %>% 
+  select(class, family, genus, species, verbatimscientificname, date, eventdate, day, month, year, decimallatitude, decimallongitude) 
+
+mammalObservations_csv$taxonomicGroup <- "mammals"
+
+write.csv(mammalObservations_csv, "F:/Uillinois_data/GBIF/mammal_Observations_GBIF.csv")
+
+# fwFish
+
+birdObservations_csv <- birdObservations %>%
+  st_drop_geometry() %>% 
+  mutate(date = as.Date(paste (year, month, day, sep = "-"), "%Y-%m-%d")) %>% 
+  select(class, family, genus, species, verbatimscientificname, date, eventdate, day, month, year, decimallatitude, decimallongitude) 
+
+birdObservations_csv$taxonomicGroup <- "birds"
+
+write.csv(birdObservations_csv, "F:/Uillinois_data/GBIF/bird_Observations_GBIF.csv")
+
+
+## END
+
+unique(amphibianObservations_csv$species)
+unique(reptileObservations_csv$species)
+unique(mammalObservations_csv$species)
+unique(birdObservations_csv$species) 
+
+
+write.csv(birdGBIF, "F:/Uillinois_data/GBIF/bird_test.csv")
+
+
+
